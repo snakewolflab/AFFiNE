@@ -70,29 +70,26 @@ jobs:
       - name: Setup Node.js
         uses: ./.github/actions/setup-node
         with:
-          # Web版のビルドに必要なワークスペースのみに焦点を絞る
-          extra-flags: workspaces focus @affine/monorepo @affine/web
+          # @affine/server を追加して、エラー定義に必要な依存パッケージ（NestJSなど）もインストールさせる
+          extra-flags: workspaces focus @affine/monorepo @affine/web @affine/server
           electron-install: false
           full-cache: true
 
       - name: Run i18n codegen
         run: yarn affine @affine/i18n build
 
-      # Web版のWebアセットをビルド（出力先フォルダはプロジェクトの実際の設定に合わせて調整してください）
       - name: Build Web Assets
         run: yarn affine @affine/web build
         env:
           DISTRIBUTION: web
           PUBLIC_PATH: '/'
 
-      # =======================================================================
-      # 成果物を別ブランチ（例: release-web）へ「書き換えあり（force）」でプッシュ
-      # =======================================================================
+      # --- 以下デプロイステップ（変更なし） ---
       - name: Deploy Web Artifact to release-web branch
-        if: github.ref == 'refs/heads/canary' # canaryブランチへのPush時のみ実行
+        if: github.ref == 'refs/heads/canary'
         uses: JamesIves/github-pages-deploy-action@v4
         with:
-          branch: release-web # プッシュ先のブランチ
-          folder: packages/frontend/apps/web/dist # ビルド成果物が生成されるディレクトリ
-          force: true # 履歴を引き継がず、常に最新ビルドで完全上書き（書き換えあり）
+          branch: release-web
+          folder: packages/frontend/apps/web/dist
+          force: true
           token: ${{ secrets.GITHUB_TOKEN }}
