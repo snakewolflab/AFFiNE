@@ -1,0 +1,98 @@
+name: Build, Test & Push (Web Only)
+
+on:
+  push:
+    branches:
+      - canary
+    paths-ignore:
+      - README.md
+  pull_request:
+
+env:
+  DEBUG: napi:*
+  BUILD_TYPE: canary
+  APP_NAME: affine
+  AFFINE_ENV: dev
+  DEPLOYMENT_TYPE: affine
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# 成果物を別ブランチにプッシュするための書き込み権限を追加
+permissions:
+  contents: write
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v6
+      - name: Setup Node.js
+        uses: ./.github/actions/setup-node
+        with:
+          electron-install: false
+          full-cache: true
+      - name: Run oxlint
+        run: yarn lint:ox
+      - name: Run i18n codegen
+        run: yarn affine @affine/i18n build
+      - name: Run ESLint
+        run: yarn lint:eslint --max-warnings=0
+
+  typecheck:
+    name: Typecheck
+    runs-on: ubuntu-24.04-arm
+    env:
+      NODE_OPTIONS: --max-old-space-size=14384
+    steps:
+      - uses: actions/checkout@v6
+      - name: Setup Node.js
+        uses: ./.github/actions/setup-node
+        with:
+          electron-install: false
+          full-cache: true
+      - name: Run i18n codegen
+        run: yarn affine @affine/i18n build
+      - name: Run Type Check
+        run: yarn typecheck
+
+  build-web:
+    name: Build & Push Web Artifact
+    runs-on: ubuntu-latest
+    needs:
+      - lint
+      - typecheck
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: ./.github/actions/setup-node
+        with:
+          # Web版のビルドに必要なワークスペースのみに焦点を絞る
+          extra-flags: workspaces focus @affine/monorepo @affine/web
+          electron-install: false
+          full-cache: true
+
+      - name: Run i18n codegen
+        run: yarn affine @affine/i18n build
+
+      # Web版のWebアセットをビルド（出力先フォルダはプロジェクトの実際の設定に合わせて調整してください）
+      - name: Build Web Assets
+        run: yarn affine @affine/web build
+        env:
+          DISTRIBUTION: web
+          PUBLIC_PATH: '/'
+
+      # =======================================================================
+      # 成果物を別ブランチ（例: release-web）へ「書き換えあり（force）」でプッシュ
+      # =======================================================================
+      - name: Deploy Web Artifact to release-web branch
+        if: github.ref == 'refs/heads/canary' # canaryブランチへのPush時のみ実行
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          branch: release-web # プッシュ先のブランチ
+          folder: packages/frontend/apps/web/dist # ビルド成果物が生成されるディレクトリ
+          force: true # 履歴を引き継がず、常に最新ビルドで完全上書き（書き換えあり）
+          token: ${{ secrets.GITHUB_TOKEN }}
